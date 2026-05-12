@@ -25,6 +25,29 @@ def get_tooth_mask_from_rgba(image_rgba):
     return alpha > 0
 
 # =========================
+# Image Enhancement
+# =========================
+def enhance_tooth_image(image_rgb, scale=2):
+    h, w = image_rgb.shape[:2]
+
+    up = cv2.resize(
+        image_rgb,
+        (w * scale, h * scale),
+        interpolation=cv2.INTER_CUBIC
+    )
+
+    lab = cv2.cvtColor(up, cv2.COLOR_RGB2LAB)
+    l, a, b = cv2.split(lab)
+
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    l2 = clahe.apply(l)
+
+    lab2 = cv2.merge([l2, a, b])
+    out = cv2.cvtColor(lab2, cv2.COLOR_LAB2RGB)
+
+    return out
+
+# =========================
 # Plaque Detection
 # =========================
 def detect_plaque_mask(image_rgb, tooth_mask):
@@ -96,9 +119,6 @@ def visualize_plaque(image_rgb, plaque_mask, alpha=0.45):
 # Shape-based zone split
 # =========================
 def build_shape_profile(tooth_mask):
-    """
-    สำหรับทุกแถว y หา x ซ้ายสุด/ขวาสุดของตัวฟัน
-    """
     h, w = tooth_mask.shape
     ys, xs = np.where(tooth_mask)
 
@@ -124,10 +144,6 @@ def build_shape_profile(tooth_mask):
     }
 
 def get_x_on_row(left_x, right_x, y, frac):
-    """
-    frac = 0.0 -> ขอบซ้าย
-    frac = 1.0 -> ขอบขวา
-    """
     xl = left_x[y]
     xr = right_x[y]
     if xl < 0 or xr < 0 or xr <= xl:
@@ -135,12 +151,6 @@ def get_x_on_row(left_x, right_x, y, frac):
     return int(round(xl + frac * (xr - xl)))
 
 def make_shape_based_zone_masks(tooth_mask, top_label="I"):
-    """
-    แบ่งโซนตามทรงฟันจริง:
-    - M = ด้านซ้าย 1/3 ของความกว้างฟันในแต่ละแถว
-    - D = ด้านขวา 1/3
-    - ตรงกลางแบ่งแนวตั้งเป็น top / C / G
-    """
     profile = build_shape_profile(tooth_mask)
     if profile is None:
         return None, None
@@ -176,13 +186,9 @@ def make_shape_based_zone_masks(tooth_mask, top_label="I"):
         if x_l_mid is None or x_r_mid is None:
             continue
 
-        # Mesial
         zone_masks["M"][y, xl:x_l_mid] = 1
-
-        # Distal
         zone_masks["D"][y, x_r_mid:xr+1] = 1
 
-        # Middle column แบ่งเป็น 3 ส่วนแนวตั้ง
         if y < y1:
             zone_masks[top_label][y, x_l_mid:x_r_mid] = 1
         elif y < y2:
@@ -190,7 +196,6 @@ def make_shape_based_zone_masks(tooth_mask, top_label="I"):
         else:
             zone_masks["G"][y, x_l_mid:x_r_mid] = 1
 
-    # บังคับให้เหลือเฉพาะพื้นที่ฟันจริง
     for k in zone_masks:
         zone_masks[k] = (zone_masks[k] > 0) & tooth_mask
 
@@ -241,7 +246,6 @@ def draw_shape_based_php_zones(image_rgb, tooth_mask, guide, detail):
     line_color = (0, 255, 0)
     text_color = (255, 255, 0)
 
-    # ขอบฟัน
     contours, _ = cv2.findContours(
         (tooth_mask.astype(np.uint8) * 255),
         cv2.RETR_EXTERNAL,
@@ -249,7 +253,6 @@ def draw_shape_based_php_zones(image_rgb, tooth_mask, guide, detail):
     )
     cv2.drawContours(out, contours, -1, line_color, 2)
 
-    # เส้นแบ่งแนวตั้งตามทรงฟัน (1/3 และ 2/3 ของความกว้างในแต่ละแถว)
     pts_left_mid = []
     pts_right_mid = []
 
@@ -272,7 +275,6 @@ def draw_shape_based_php_zones(image_rgb, tooth_mask, guide, detail):
     if len(pts_right_mid) > 1:
         cv2.polylines(out, [np.array(pts_right_mid, dtype=np.int32)], False, line_color, 2)
 
-    # เส้นแบ่งแนวนอนในคอลัมน์กลาง
     row1 = []
     row2 = []
 
@@ -293,7 +295,6 @@ def draw_shape_based_php_zones(image_rgb, tooth_mask, guide, detail):
     if len(row2) > 1:
         cv2.polylines(out, [np.array(row2, dtype=np.int32)], False, line_color, 2)
 
-    # จุดกึ่งกลางแต่ละ zone สำหรับวาง text
     zone_masks, _ = make_shape_based_zone_masks(tooth_mask, top_label=top_label)
 
     for zone_name, zone_mask in zone_masks.items():
@@ -320,7 +321,7 @@ def draw_shape_based_php_zones(image_rgb, tooth_mask, guide, detail):
 # =========================
 # Process Each Tooth
 # =========================
-def process_tooth(tooth_path, save_dir, top_label="I", min_plaque_pixels=1):
+def process_tooth(tooth_path, save_dir, top_label="I", min_plaque_pixels=1, scale=2):
     print("READING:", tooth_path)
 
     rgba = np.array(Image.open(tooth_path).convert("RGBA"))
@@ -330,26 +331,38 @@ def process_tooth(tooth_path, save_dir, top_label="I", min_plaque_pixels=1):
     rgb_masked = np.zeros_like(rgb)
     rgb_masked[tooth_mask] = rgb[tooth_mask]
 
+    enhanced_rgb = enhance_tooth_image(rgb_masked, scale=scale)
+
+    tooth_mask_up = cv2.resize(
+        tooth_mask.astype(np.uint8),
+        (enhanced_rgb.shape[1], enhanced_rgb.shape[0]),
+        interpolation=cv2.INTER_NEAREST
+    ) > 0
+
+    enhanced_rgb_masked = np.zeros_like(enhanced_rgb)
+    enhanced_rgb_masked[tooth_mask_up] = enhanced_rgb[tooth_mask_up]
+
     base = os.path.splitext(os.path.basename(tooth_path))[0]
 
     Image.fromarray(rgba).save(os.path.join(save_dir, f"{base}_input_rgba.png"))
     Image.fromarray(rgb_masked).save(os.path.join(save_dir, f"{base}_input_rgb.png"))
+    Image.fromarray(enhanced_rgb_masked).save(os.path.join(save_dir, f"{base}_input_rgb_enhanced.png"))
 
-    plaque_mask = detect_plaque_mask(rgb_masked, tooth_mask=tooth_mask)
-    plaque_vis = visualize_plaque(rgb_masked, plaque_mask)
+    plaque_mask = detect_plaque_mask(enhanced_rgb_masked, tooth_mask=tooth_mask_up)
+    plaque_vis = visualize_plaque(enhanced_rgb_masked, plaque_mask)
 
     plaque_area = int(np.sum(plaque_mask > 0))
-    tooth_area = int(np.sum(tooth_mask > 0))
+    tooth_area = int(np.sum(tooth_mask_up > 0))
     ratio = (plaque_area / tooth_area) if tooth_area > 0 else 0.0
 
-    zone_masks, guide = make_shape_based_zone_masks(tooth_mask, top_label=top_label)
+    zone_masks, guide = make_shape_based_zone_masks(tooth_mask_up, top_label=top_label)
     php_score, detail = score_php_from_zone_masks(
         plaque_mask,
         zone_masks,
         min_plaque_pixels=min_plaque_pixels
     )
 
-    php_vis = draw_shape_based_php_zones(plaque_vis, tooth_mask, guide, detail)
+    php_vis = draw_shape_based_php_zones(plaque_vis, tooth_mask_up, guide, detail)
 
     Image.fromarray(plaque_mask).save(os.path.join(save_dir, f"{base}_plaque_mask.png"))
     Image.fromarray(plaque_vis).save(os.path.join(save_dir, f"{base}_plaque_vis.png"))
@@ -394,13 +407,12 @@ def main():
                 report_lines.append(f"{tooth_file}: not found\n\n")
                 continue
 
-            # ฟันหน้ากำหนด top_label = I
-            # ถ้าเป็นฟันกรามเปลี่ยนเป็น O
             result = process_tooth(
                 tooth_path,
                 save_dir,
                 top_label="I",
-                min_plaque_pixels=10
+                min_plaque_pixels=10,
+                scale=2
             )
 
             total_php += result["php_score"]
