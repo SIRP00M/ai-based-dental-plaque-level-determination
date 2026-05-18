@@ -319,6 +319,175 @@ def draw_shape_based_php_zones(image_rgb, tooth_mask, guide, detail):
     return out
 
 # =========================
+# QHPI helpers
+# ด้านบนของภาพ = ด้านเหงือกของฟันบน
+# =========================
+def compute_qhpi_from_mask(plaque_mask, tooth_mask):
+    """
+    ใช้แนวคิด Quigley-Hein / Turesky แบบประมาณจาก mask:
+    0 = ไม่มีคราบ
+    1 = มีคราบเป็นจุดเล็กใกล้ขอบเหงือก
+    2 = เป็นเส้นบางต่อเนื่องใกล้ขอบเหงือก
+    3 = คราบครอบคลุม < 1/3 ของผิวฟัน
+    4 = คราบครอบคลุม 1/3 ถึง < 2/3
+    5 = คราบครอบคลุม >= 2/3
+    """
+
+    ys, xs = np.where(tooth_mask)
+    if len(xs) == 0 or len(ys) == 0:
+        return 0, {
+            "ratio": 0.0,
+            "gingival_ratio": 0.0,
+            "gingival_continuity": 0.0,
+            "y_cut_1": 0,
+            "y_cut_2": 0,
+        }
+
+    y_min = ys.min()
+    y_max = ys.max()
+    height = y_max - y_min + 1
+
+    # ด้านบนของภาพ = gingival side
+    gingival_h = max(1, int(round(height * 0.20)))
+    y_g_end = min(y_max + 1, y_min + gingival_h)
+
+    tooth_area = int(np.sum(tooth_mask))
+    plaque_area = int(np.sum((plaque_mask > 0) & tooth_mask))
+    ratio = plaque_area / tooth_area if tooth_area > 0 else 0.0
+
+    gingival_band = np.zeros_like(tooth_mask, dtype=bool)
+    gingival_band[y_min:y_g_end, :] = True
+    gingival_band = gingival_band & tooth_mask
+
+    gingival_area = int(np.sum(gingival_band))
+    gingival_plaque = int(np.sum((plaque_mask > 0) & gingival_band))
+    gingival_ratio = gingival_plaque / gingival_area if gingival_area > 0 else 0.0
+
+    # ความต่อเนื่องตามแนวกว้างบริเวณเหงือก
+    row_coverages = []
+    for y in range(y_min, y_g_end):
+        tooth_row = tooth_mask[y]
+        plaque_row = (plaque_mask[y] > 0) & tooth_row
+
+        tooth_w = int(np.sum(tooth_row))
+        if tooth_w == 0:
+            continue
+
+        plaque_w = int(np.sum(plaque_row))
+        row_coverages.append(plaque_w / tooth_w)
+
+    gingival_continuity = max(row_coverages) if row_coverages else 0.0
+
+    # ให้คะแนน
+    if plaque_area == 0:
+        score = 0
+    elif ratio >= 2/3:
+        score = 5
+    elif ratio >= 1/3:
+        score = 4
+    elif ratio > 0:
+        # น้อยกว่า 1/3 ให้แยกตามลักษณะใกล้ขอบเหงือก
+        if gingival_plaque == 0:
+            score = 3
+        elif gingival_continuity >= 0.50:
+            score = 2
+        else:
+            score = 1
+    else:
+        score = 0
+
+    qh_detail = {
+        "ratio": ratio,
+        "gingival_ratio": gingival_ratio,
+        "gingival_continuity": gingival_continuity,
+        "y_cut_1": int(y_min + height / 3),
+        "y_cut_2": int(y_min + 2 * height / 3),
+        "y_min": int(y_min),
+        "y_max": int(y_max),
+        "y_g_end": int(y_g_end),
+    }
+
+    return score, qh_detail
+
+def draw_qhpi_visual(image_rgb, tooth_mask, plaque_mask, qh_score, qh_detail):
+    out = image_rgb.copy()
+
+    colors = {
+        0: (0, 255, 0),      # เขียว
+        1: (120, 255, 0),
+        2: (255, 255, 0),    # เหลือง
+        3: (255, 170, 0),    # ส้ม
+        4: (255, 100, 0),
+        5: (255, 0, 0),      # แดง
+    }
+
+    overlay_color = np.array(colors[qh_score], dtype=np.float32)
+
+    # overlay คราบตามสี score
+    out_f = out.astype(np.float32)
+    mask_bool = (plaque_mask > 0)
+    alpha = 0.55
+    out_f[mask_bool] = out_f[mask_bool] * (1 - alpha) + overlay_color * alpha
+    out = out_f.astype(np.uint8)
+
+    # วาดขอบฟัน
+    contours, _ = cv2.findContours(
+        (tooth_mask.astype(np.uint8) * 255),
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_NONE
+    )
+    cv2.drawContours(out, contours, -1, (0, 255, 255), 2)
+
+    # เส้นแบ่งแนว coverage 1/3 และ 2/3
+    y_cut_1 = qh_detail["y_cut_1"]
+    y_cut_2 = qh_detail["y_cut_2"]
+    y_min = qh_detail["y_min"]
+    y_g_end = qh_detail["y_g_end"]
+
+    for y_line, color in [(y_g_end, (255, 255, 255)), (y_cut_1, (0, 255, 0)), (y_cut_2, (0, 255, 0))]:
+        xs = np.where(tooth_mask[y_line])[0] if 0 <= y_line < tooth_mask.shape[0] else []
+        if len(xs) > 1:
+            cv2.line(out, (int(xs.min()), y_line), (int(xs.max()), y_line), color, 2)
+
+    # ข้อความ
+    ratio_pct = qh_detail["ratio"] * 100
+    ging_pct = qh_detail["gingival_ratio"] * 100
+    cont_pct = qh_detail["gingival_continuity"] * 100
+
+    cv2.putText(
+        out,
+        f"QHPI: {qh_score}",
+        (10, 28),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.75,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA
+    )
+    cv2.putText(
+        out,
+        f"Coverage: {ratio_pct:.1f}%",
+        (10, 55),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.60,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA
+    )
+    cv2.putText(
+        out,
+        f"Gingival: {ging_pct:.1f}%  Cont: {cont_pct:.1f}%",
+        (10, 82),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.52,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA
+    )
+
+    return out
+
+# =========================
 # Process Each Tooth
 # =========================
 def process_tooth(tooth_path, save_dir, top_label="I", min_plaque_pixels=1, scale=2):
@@ -355,24 +524,31 @@ def process_tooth(tooth_path, save_dir, top_label="I", min_plaque_pixels=1, scal
     tooth_area = int(np.sum(tooth_mask_up > 0))
     ratio = (plaque_area / tooth_area) if tooth_area > 0 else 0.0
 
+    # PHP
     zone_masks, guide = make_shape_based_zone_masks(tooth_mask_up, top_label=top_label)
     php_score, detail = score_php_from_zone_masks(
         plaque_mask,
         zone_masks,
         min_plaque_pixels=min_plaque_pixels
     )
-
     php_vis = draw_shape_based_php_zones(plaque_vis, tooth_mask_up, guide, detail)
+
+    # QHPI
+    qh_score, qh_detail = compute_qhpi_from_mask(plaque_mask, tooth_mask_up)
+    qh_vis = draw_qhpi_visual(enhanced_rgb_masked, tooth_mask_up, plaque_mask, qh_score, qh_detail)
 
     Image.fromarray(plaque_mask).save(os.path.join(save_dir, f"{base}_plaque_mask.png"))
     Image.fromarray(plaque_vis).save(os.path.join(save_dir, f"{base}_plaque_vis.png"))
     Image.fromarray(php_vis).save(os.path.join(save_dir, f"{base}_php_shape_vis.png"))
+    Image.fromarray(qh_vis).save(os.path.join(save_dir, f"{base}_qhpi_vis.png"))
 
     return {
         "ratio": ratio,
         "plaque_area": plaque_area,
         "tooth_area": tooth_area,
         "php_score": php_score,
+        "qhpi_score": qh_score,
+        "qh_detail": qh_detail,
         "detail": detail,
     }
 
@@ -398,6 +574,7 @@ def main():
         report_lines = [f"Case: {case_name}\n\n"]
 
         total_php = 0
+        total_qhpi = 0
         counted_teeth = 0
 
         for tooth_file in TOOTH_FILES:
@@ -416,15 +593,23 @@ def main():
             )
 
             total_php += result["php_score"]
+            total_qhpi += result["qhpi_score"]
             counted_teeth += 1
 
             detail = result["detail"]
+            qh_detail = result["qh_detail"]
 
             report_lines.append(f"{tooth_file}\n")
             report_lines.append(f"  Plaque ratio : {result['ratio']:.4f} ({result['ratio'] * 100:.2f}%)\n")
             report_lines.append(f"  Plaque area  : {result['plaque_area']} pixels\n")
             report_lines.append(f"  Tooth area   : {result['tooth_area']} pixels\n")
             report_lines.append(f"  PHP score    : {result['php_score']}/5\n")
+            report_lines.append(f"  QHPI score   : {result['qhpi_score']}/5\n")
+            report_lines.append(
+                f"  QH detail    : coverage={qh_detail['ratio']*100:.2f}%, "
+                f"gingival={qh_detail['gingival_ratio']*100:.2f}%, "
+                f"continuity={qh_detail['gingival_continuity']*100:.2f}%\n"
+            )
             report_lines.append(
                 "  Zone detail  : " +
                 ", ".join([f"{z}={detail[z]['score']}" for z in detail.keys()]) + "\n"
@@ -435,12 +620,15 @@ def main():
             )
 
         avg_php = (total_php / counted_teeth) if counted_teeth > 0 else 0.0
-        report_lines.append(f"Average PHP score: {avg_php:.2f}\n")
+        avg_qhpi = (total_qhpi / counted_teeth) if counted_teeth > 0 else 0.0
 
-        with open(os.path.join(save_dir, "plaque_php_shape_report.txt"), "w", encoding="utf-8") as f:
+        report_lines.append(f"Average PHP score  : {avg_php:.2f}\n")
+        report_lines.append(f"Average QHPI score : {avg_qhpi:.2f}\n")
+
+        with open(os.path.join(save_dir, "plaque_php_qhpi_report.txt"), "w", encoding="utf-8") as f:
             f.writelines(report_lines)
 
-        print("[DONE]", case_name, "AVG PHP =", f"{avg_php:.2f}")
+        print("[DONE]", case_name, "AVG PHP =", f"{avg_php:.2f}", "AVG QHPI =", f"{avg_qhpi:.2f}")
 
 if __name__ == "__main__":
     main()
