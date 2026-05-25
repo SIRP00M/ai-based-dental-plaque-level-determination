@@ -18,6 +18,7 @@ import re
 import sys
 import shutil
 import subprocess
+import argparse
 from pathlib import Path
 from datetime import datetime
 from typing import Tuple, Dict
@@ -52,6 +53,9 @@ WEIGHT_FILE_CANDIDATES = [
 
 TEETH_SEGMENT_RESULT_DIR = PROJECT_ROOT / "Teeth Segment Result"
 PLAQUE_RESULT_DIR = PROJECT_ROOT / "Plaque Result Curves"
+
+# โหมดข้ามการรัน AI ถ้ามีผลลัพธ์อยู่แล้ว
+SKIP_AI_IF_EXISTS = True
 
 SUMMARY_FILENAMES = {
     "case_summary_php_qhpi.png",
@@ -341,6 +345,11 @@ WEIGHT_FILE = first_existing_file(WEIGHT_FILE_CANDIDATES)
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Dental Plaque Pipeline")
+    parser.add_argument("--force-ai", action="store_true", help="บังคับรัน AI ใหม่เสมอ")
+    args, unknown = parser.parse_known_args()
+    force_ai = args.force_ai
+
     print_header("DENTAL PLAQUE PIPELINE: AI -> DETECTION -> SUMMARY")
     print(f"Python executable = {sys.executable}")
 
@@ -382,8 +391,13 @@ def main() -> None:
         )
 
         # Step 1
-        run_script(RUN_MODEL_SCRIPT, "STEP 1/3 - AI Teeth Segmentation / Mask R-CNN")
-        validate_after_ai()
+        if SKIP_AI_IF_EXISTS and not force_ai and count_case_folders(TEETH_SEGMENT_RESULT_DIR) > 0:
+            print_header("STEP 1/3 - AI Teeth Segmentation / Mask R-CNN")
+            print(f"[SKIP] พบโฟลเดอร์ผลลัพธ์ใน {TEETH_SEGMENT_RESULT_DIR.name} แล้ว ข้ามการรัน AI ใหม่")
+            validate_after_ai()
+        else:
+            run_script(RUN_MODEL_SCRIPT, "STEP 1/3 - AI Teeth Segmentation / Mask R-CNN")
+            validate_after_ai()
 
         # Step 2: Detection อย่างเดียว ไม่เช็ค summary แล้ว
         run_script(PLAQUE_DETECTION_SCRIPT, "STEP 2/3 - Plaque Detection + PHP + QHPI + Report")
