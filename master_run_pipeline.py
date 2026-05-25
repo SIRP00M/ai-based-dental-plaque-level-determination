@@ -164,6 +164,31 @@ def count_summary_images(folder: Path) -> int:
     return count
 
 
+def has_valid_ai_output(folder: Path) -> bool:
+    """เช็คว่ามี case folder อย่างน้อย 1 โฟลเดอร์ที่มีไฟล์ tooth ครบทั้ง 6 ซี่หรือไม่"""
+    if not folder.exists():
+        return False
+    required_teeth = {"tooth11.png", "tooth12.png", "tooth13.png", "tooth21.png", "tooth22.png", "tooth23.png"}
+    for case_dir in find_case_folders(folder):
+        existing_files = {p.name.lower() for p in case_dir.iterdir() if p.is_file()}
+        if required_teeth.issubset(existing_files):
+            return True
+    return False
+
+
+def has_valid_detection_output(folder: Path) -> bool:
+    """เช็คว่ามี case folder อย่างน้อย 1 โฟลเดอร์ที่มีไฟล์ report หรือ case_results.json หรือไม่"""
+    if not folder.exists():
+        return False
+    for case_dir in find_case_folders(folder):
+        has_txt = any((case_dir / name).exists() for name in REPORT_FILENAMES)
+        has_fuzzy_txt = bool(list(case_dir.glob("*report*.txt")))
+        has_json = (case_dir / "case_results.json").exists()
+        if has_txt or has_fuzzy_txt or has_json:
+            return True
+    return False
+
+
 def require_file(path: Path, label: str) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"ไม่พบ {label}: {path}")
@@ -336,6 +361,26 @@ def validate_after_summary() -> None:
         )
 
 
+def validate_for_detection_only() -> None:
+    print_header("VALIDATE FOR DETECTION ONLY MODE")
+    if not has_valid_ai_output(TEETH_SEGMENT_RESULT_DIR):
+        raise RuntimeError(
+            "ไม่สามารถรัน --detection-only ได้ เนื่องจากไม่พบผลลัพธ์ AI ที่สมบูรณ์\n"
+            f"กรุณาตรวจสอบว่าในโฟลเดอร์ {TEETH_SEGMENT_RESULT_DIR} มีโฟลเดอร์เคสที่มีไฟล์รูป tooth11 ถึง tooth23 ครบถ้วน"
+        )
+    print("[OK] มีผลลัพธ์ AI พร้อมสำหรับการรัน Step 2")
+
+
+def validate_for_summary_only() -> None:
+    print_header("VALIDATE FOR SUMMARY ONLY MODE")
+    if not has_valid_detection_output(PLAQUE_RESULT_DIR):
+        raise RuntimeError(
+            "ไม่สามารถรัน --summary-only ได้ เนื่องจากไม่พบผลลัพธ์ Detection\n"
+            f"กรุณาตรวจสอบว่าในโฟลเดอร์ {PLAQUE_RESULT_DIR} มีไฟล์ report txt หรือ case_results.json"
+        )
+    print("[OK] มีผลลัพธ์ Detection พร้อมสำหรับการรัน Step 3")
+
+
 # ==============================================================================
 # 5) Main
 # ==============================================================================
@@ -347,8 +392,16 @@ WEIGHT_FILE = first_existing_file(WEIGHT_FILE_CANDIDATES)
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dental Plaque Pipeline")
     parser.add_argument("--force-ai", action="store_true", help="บังคับรัน AI ใหม่เสมอ")
+    parser.add_argument("--detection-only", action="store_true", help="ข้าม Step 1 แล้วรันเฉพาะ Step 2 + Step 3")
+    parser.add_argument("--summary-only", action="store_true", help="ข้าม Step 1 และ Step 2 แล้วรันเฉพาะ Step 3")
     args, unknown = parser.parse_known_args()
+    
     force_ai = args.force_ai
+    detection_only = args.detection_only
+    summary_only = args.summary_only
+
+    if summary_only:
+        detection_only = False
 
     print_header("DENTAL PLAQUE PIPELINE: AI -> DETECTION -> SUMMARY")
     print(f"Python executable = {sys.executable}")
@@ -390,22 +443,43 @@ def main() -> None:
             "STEP 3 SCRIPT - plaque_summary.py",
         )
 
-        # Step 1
-        if SKIP_AI_IF_EXISTS and not force_ai and count_case_folders(TEETH_SEGMENT_RESULT_DIR) > 0:
-            print_header("STEP 1/3 - AI Teeth Segmentation / Mask R-CNN")
-            print(f"[SKIP] พบโฟลเดอร์ผลลัพธ์ใน {TEETH_SEGMENT_RESULT_DIR.name} แล้ว ข้ามการรัน AI ใหม่")
-            validate_after_ai()
+        if summary_only:
+            print_header("MODE: SUMMARY ONLY")
+            validate_for_summary_only()
+            
+            # Step 3
+            run_script(PLAQUE_SUMMARY_SCRIPT, "STEP 3/3 - Summary Dashboard Image")
+            validate_after_summary()
+
+        elif detection_only:
+            print_header("MODE: DETECTION ONLY")
+            validate_for_detection_only()
+            
+            # Step 2
+            run_script(PLAQUE_DETECTION_SCRIPT, "STEP 2/3 - Plaque Detection + PHP + QHPI + Report")
+            validate_after_detection_only()
+            
+            # Step 3
+            run_script(PLAQUE_SUMMARY_SCRIPT, "STEP 3/3 - Summary Dashboard Image")
+            validate_after_summary()
+
         else:
-            run_script(RUN_MODEL_SCRIPT, "STEP 1/3 - AI Teeth Segmentation / Mask R-CNN")
-            validate_after_ai()
-
-        # Step 2: Detection อย่างเดียว ไม่เช็ค summary แล้ว
-        run_script(PLAQUE_DETECTION_SCRIPT, "STEP 2/3 - Plaque Detection + PHP + QHPI + Report")
-        validate_after_detection_only()
-
-        # Step 3: Summary แยกออกมาเป็นไฟล์ของตัวเอง
-        run_script(PLAQUE_SUMMARY_SCRIPT, "STEP 3/3 - Summary Dashboard Image")
-        validate_after_summary()
+            # Step 1
+            if SKIP_AI_IF_EXISTS and not force_ai and has_valid_ai_output(TEETH_SEGMENT_RESULT_DIR):
+                print_header("STEP 1/3 - AI Teeth Segmentation / Mask R-CNN")
+                print(f"[SKIP] พบโฟลเดอร์ผลลัพธ์ที่มีรูปฟันครบใน {TEETH_SEGMENT_RESULT_DIR.name} แล้ว ข้ามการรัน AI ใหม่")
+                validate_after_ai()
+            else:
+                run_script(RUN_MODEL_SCRIPT, "STEP 1/3 - AI Teeth Segmentation / Mask R-CNN")
+                validate_after_ai()
+    
+            # Step 2: Detection อย่างเดียว ไม่เช็ค summary แล้ว
+            run_script(PLAQUE_DETECTION_SCRIPT, "STEP 2/3 - Plaque Detection + PHP + QHPI + Report")
+            validate_after_detection_only()
+    
+            # Step 3: Summary แยกออกมาเป็นไฟล์ของตัวเอง
+            run_script(PLAQUE_SUMMARY_SCRIPT, "STEP 3/3 - Summary Dashboard Image")
+            validate_after_summary()
 
         print_header("PIPELINE COMPLETE")
         print("[SUCCESS] รันครบ 3 ขั้นตอนเรียบร้อย")
