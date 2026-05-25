@@ -432,12 +432,6 @@ def main() -> None:
         patch_file_constants(
             PLAQUE_SUMMARY_SCRIPT,
             {
-                # รองรับหลายชื่อ เผื่อ summary script ใช้ชื่อไม่เหมือนกัน
-                "INPUT_ROOT": PLAQUE_RESULT_DIR,
-                "OUTPUT_ROOT": PLAQUE_RESULT_DIR,
-                "PLAQUE_RESULT_DIR": PLAQUE_RESULT_DIR,
-                "RESULT_ROOT": PLAQUE_RESULT_DIR,
-                "ROOT_DIR": PLAQUE_RESULT_DIR,
                 "output_root": PLAQUE_RESULT_DIR,
             },
             "STEP 3 SCRIPT - plaque_summary.py",
