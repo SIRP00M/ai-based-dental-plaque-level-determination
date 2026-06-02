@@ -1,0 +1,59 @@
+Case: Plaque_Disclosing_Gel
+
+tooth11.png
+  Plaque ratio : 0.3882 (38.82%)
+  PHP score    : 4/5
+  QHPI score   : 5/5
+  QH detail    : coverage=37.68%
+                 depth=0.00 mm, band=0.0%
+                 yellow_line=0.5 mm, zone1=True, zone2=True, middle=True, incisal=True
+  PHP Zone detail: M=1, I=0, C=1, G=1, D=1
+
+tooth12.png
+  Plaque ratio : 0.4500 (45.00%)
+  PHP score    : 4/5
+  QHPI score   : 5/5
+  QH detail    : coverage=43.45%
+                 depth=0.00 mm, band=0.0%
+                 yellow_line=0.5 mm, zone1=True, zone2=True, middle=True, incisal=True
+  PHP Zone detail: M=1, I=0, C=1, G=1, D=1
+
+tooth13.png
+  Plaque ratio : 0.7455 (74.55%)
+  PHP score    : 4/4
+  QHPI score   : 5/5
+  QH detail    : coverage=70.05%
+                 depth=2.00 mm, band=100.0%
+                 yellow_line=0.5 mm, zone1=True, zone2=True, middle=True, incisal=True
+  PHP Zone detail: I=1, C=1, G=1, D=1
+
+tooth21.png
+  Plaque ratio : 0.6069 (60.69%)
+  PHP score    : 4/5
+  QHPI score   : 5/5
+  QH detail    : coverage=58.81%
+                 depth=2.04 mm, band=50.0%
+                 yellow_line=0.5 mm, zone1=True, zone2=True, middle=True, incisal=True
+  PHP Zone detail: M=1, I=0, C=1, G=1, D=1
+
+tooth22.png
+  Plaque ratio : 0.5742 (57.42%)
+  PHP score    : 4/5
+  QHPI score   : 5/5
+  QH detail    : coverage=56.29%
+                 depth=2.04 mm, band=50.0%
+                 yellow_line=0.5 mm, zone1=True, zone2=True, middle=True, incisal=True
+  PHP Zone detail: M=1, I=0, C=1, G=1, D=1
+
+tooth23.png
+  Plaque ratio : 1.0690 (106.90%)
+  PHP score    : 4/4
+  QHPI score   : 5/5
+  QH detail    : coverage=100.00%
+                 depth=1.95 mm, band=100.0%
+                 yellow_line=0.5 mm, zone1=True, zone2=True, middle=True, incisal=True
+  PHP Zone detail: M=1, I=1, C=1, G=1
+
+Total PHP (Raw)    : 24/28
+Average PHP (0-5)  : 4.29
+Average QHPI (0-5) : 5.00

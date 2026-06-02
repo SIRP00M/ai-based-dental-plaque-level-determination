@@ -34,8 +34,8 @@ from plaque_visualization import (
 # PATH SETTINGS
 # ==============================================================================
 
-INPUT_ROOT = r"D:/Internship/Teeth Segment Result"
-OUTPUT_ROOT = r"D:/Internship/Plaque Result Curves"
+INPUT_ROOT = r"D:/GitHub/Teeth Segment Result"
+OUTPUT_ROOT = r"D:/GitHub/Plaque Result Curves"
 
 os.makedirs(OUTPUT_ROOT, exist_ok=True)
 

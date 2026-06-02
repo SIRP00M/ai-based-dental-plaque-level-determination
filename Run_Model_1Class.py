@@ -9,8 +9,8 @@ from mrcnn.model import MaskRCNN
 # 1. ตั้งค่า Paths (ตรวจสอบและแก้ไขให้ตรงกับเครื่องของคุณ)
 # ==============================================================================
 WEIGHTS   = r"D:/Internship/h5/mask_rcnn_tooth_single_class_0097.h5"  
-IMG_DIR   = r"D:/Internship/Data"       
-OUT_ROOT  = r"D:/Internship/Teeth Segment Result"  
+IMG_DIR   = r"D:/GitHub/ai-based-dental-plaque-level-determination/Data"       
+OUT_ROOT  = r"D:/GitHub/Teeth Segment Result"  
 
 os.makedirs(OUT_ROOT, exist_ok=True)
 

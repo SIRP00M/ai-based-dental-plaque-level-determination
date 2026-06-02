@@ -374,7 +374,7 @@ def create_case_summary_image(case_name, case_results, save_dir):
 def main():
     import json
     
-    output_root = r"D:/Internship Test/Plaque Result Curves"
+    output_root = r"D:/GitHub/Plaque Result Curves"
     if not os.path.exists(output_root):
         print(f"Error: Output root directory not found: {output_root}")
         return
