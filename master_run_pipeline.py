@@ -32,7 +32,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
 RUN_MODEL_SCRIPT = SCRIPT_DIR / "Run_Model_1Class.py"
-PLAQUE_DETECTION_SCRIPT = SCRIPT_DIR / "plaque_detection_curve.py"
+PLAQUE_DETECTION_SCRIPT = SCRIPT_DIR / "plaque_detection.py"
 PLAQUE_SUMMARY_SCRIPT = SCRIPT_DIR / "plaque_summary.py"
 
 # เลือก input image folder อัตโนมัติจาก candidate เหล่านี้
