@@ -1,5 +1,7 @@
 # AI-Based Dental Plaque Level Determination
 
+**English** | [ภาษาไทย](README_TH.md)
+
 AI-assisted dental plaque analysis system for visually impaired users, developed during an internship at **PSU-Dolphins Co., Ltd.**, in collaboration with the **Faculty of Dentistry, Prince of Songkla University** and the **Faculty of Dentistry, Mahidol University**.
 
 This project extends Mask R-CNN tooth segmentation with automated plaque detection, PHP/QHPI scoring, clinical dashboard visualization, and brushing recommendation generation.
